@@ -1,4 +1,8 @@
 from mutagen.mp3 import MP3
+from data.models import get_session, UserStats, MusicFile
+from datetime import datetime
+
+import os
 
 
 class ProfileChangeLabel:
@@ -7,19 +11,19 @@ class ProfileChangeLabel:
 
     # Функция добавления прослушанной песни к общему счетчику;
     def save_num_of_song_txt(self):
-        fl_txt = open("./db/score.txt", mode="r+", encoding="utf-8")
-        text = fl_txt.read()
-        text_fin = ""
-        for i in text:
-            if i in "1234567890":
-                text_fin += i
-            else:
-                pass
+        """Теперь сохраняет в базу данных вместо txt файла"""
+        try:
+            session = get_session()
+            user_stats = session.query(UserStats).first()
 
-        fl_txt.seek(0)
-        fl_txt.truncate(0)
-        fl_txt.write(str(int(text_fin) + 1))
-        fl_txt.close()
+            if user_stats:
+                user_stats.total_songs_played += 1
+                user_stats.updated_at = datetime.now()
+                session.commit()
+
+            session.close()
+        except Exception as e:
+            print(f"Ошибка при сохранении статистики: {e}")
 
 
 class Duration:
@@ -27,12 +31,36 @@ class Duration:
         self.lenght_file = 0
 
     def dur_song(self, file):
-        self.lenght_file = MP3(file).info.length
-        fl_txt = open("./db/duration.txt", mode="r+", encoding="utf-8")
-        text = fl_txt.read()
-        fin_lenght_file = self.lenght_file + int(text)
+        """Сохраняет длительность в базу данных"""
+        try:
+            self.lenght_file = MP3(file).info.length
 
-        fl_txt.seek(0)
-        fl_txt.truncate(0)
-        fl_txt.write(str(int(fin_lenght_file) + 1))
-        fl_txt.close()
+            session = get_session()
+
+            # Обновляем общее время прослушивания
+            user_stats = session.query(UserStats).first()
+            if user_stats:
+                user_stats.total_listening_time += int(self.lenght_file)
+                user_stats.updated_at = datetime.now()
+
+            # Обновляем или создаем запись о файле
+            music_file = session.query(MusicFile).filter_by(file_path=file).first()
+            if music_file:
+                music_file.duration = int(self.lenght_file)
+            else:
+                file_name = os.path.basename(file)
+                file_extension = os.path.splitext(file)[1].lower()
+
+                music_file = MusicFile(
+                    file_path=file,
+                    file_name=file_name,
+                    file_extension=file_extension,
+                    duration=int(self.lenght_file)
+                )
+                session.add(music_file)
+
+            session.commit()
+            session.close()
+
+        except Exception as e:
+            print(f"Ошибка при сохранении длительности: {e}")
